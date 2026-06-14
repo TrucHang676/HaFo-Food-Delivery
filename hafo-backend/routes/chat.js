@@ -10,7 +10,6 @@ const { handleViolation } = require('./user'); // ✅ Import hàm xử phạt
 const Notification = require('../models/Notification');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const stopWords = ['cho', 'hỏi', 'mình', 'muốn', 'tìm', 'mua', 'có', 'không', 'gì', 'bán', 'đâu', 'ở', 'tại', 'nhỉ', 'với', 'nhé', 'nha', 'gợi', 'ý', 'vài', 'món', '1'];
 
 router.post('/', async (req, res) => {
     // 1. Nhận thêm userId, userName và address từ frontend gửi lên
@@ -18,59 +17,39 @@ router.post('/', async (req, res) => {
 
     try {
         // 🟢 BƯỚC 1: QUÉT NGÔN TỪ CỦA KHÁCH TRƯỚC KHI GỬI CHO GEMINI
-        // const isBad = await checkContentAI(message);
-        // if (isBad) {
-        //     if (userId) {
-        //         await handleViolation(userId, "Dùng từ ngữ không phù hợp với Chatbot AI");
-        //     }
-        //     return res.json({
-        //         reply: "Hic, HaFo AI xin phép không trả lời những tin nhắn có từ ngữ như vậy ạ. Bạn hãy giữ lịch sự nhé!",
-        //         foods: []
-        //     });
-        // }
+        const isBad = await checkContentAI(message);
+        if (isBad) {
+            if (userId) {
+                await handleViolation(userId, "Dùng từ ngữ không phù hợp với Chatbot AI");
+            }
+            return res.json({
+                reply: "Hic, HaFo AI xin phép không trả lời những tin nhắn có từ ngữ như vậy ạ. Bạn hãy giữ lịch sự nhé!",
+                foods: []
+            });
+        }
 
         // 🟢 BƯỚC 2: NẾU SẠCH THÌ MỚI CHẠY LOGIC GEMINI PHÍA DƯỚI
         // 1. TÌM KIẾM THÔNG MINH
-        const words = message.toLowerCase().split(' ');
-        const cleanKeywords = words.filter(word => word.length > 1 && !stopWords.includes(word));
+        const keywords = message.split(' ').filter(word => word.length > 1);
+        const searchRegex = keywords.length > 0 ? keywords.join('|') : message;
 
-        // ✅ KHAI BÁO searchRegex Ở ĐÂY ĐỂ AI ĐỌC ĐƯỢC (Dòng này má bị thiếu nè!)
-        const searchRegex = cleanKeywords.length > 0 ? cleanKeywords.join(' ') : message;
+        const searchQuery = {
+            $or: [
+                { name: { $regex: searchRegex, $options: 'i' } },
+                { description: { $regex: searchRegex, $options: 'i' } }
+            ]
+        };
 
-        let searchQuery = {};
-        if (cleanKeywords.length > 0) {
-            const combinedPhrase = cleanKeywords.join(' ');
-            searchQuery = {
-                $or: [
-                    { name: { $regex: combinedPhrase, $options: 'i' } }, // Tìm "sữa chua" nguyên cụm
-                    { name: { $all: cleanKeywords.map(k => new RegExp(k, 'i')) } } // Hoặc chứa cả "sữa" VÀ "chua"
-                ]
-            };
-        } else {
-            searchQuery = { name: { $regex: message, $options: 'i' } };
-        }
-
-        // 1. Chạy query lấy dữ liệu món ăn
         let foodsData = await Food.find(searchQuery)
-            .populate('restaurant')
-            .select('name price description image restaurant options')
-            .limit(20);
+            .limit(15)
+            .populate('restaurant') // ✅ Populate để lấy name, location
+            .select('name price description image restaurant options');
 
-        // 2. Tìm dự phòng nếu tìm chính xác (AND-SEARCH) không có kết quả
+        let isMatchFound = true;
+
         if (foodsData.length === 0) {
-            const orRegex = cleanKeywords.length > 0 ? cleanKeywords.join('|') : message;
-            foodsData = await Food.find({ name: { $regex: orRegex, $options: 'i' } })
-                .populate('restaurant')
-                .limit(20);
-        }
-
-        // Đánh dấu để báo cho AI biết có tìm thấy món khớp không
-        let isMatchFound = foodsData.length > 0;
-
-        // 3. Nếu vẫn trắng tay, lấy đại vài món gợi ý của quán
-        if (foodsData.length === 0) {
-            isMatchFound = false;
-            foodsData = await Food.find().limit(10).populate('restaurant');
+            isMatchFound = false; // ✅ Nếu không tìm thấy món khớp, đánh dấu là false
+            foodsData = await Food.find().limit(8).populate('restaurant');
         }
 
         // Tạo menu cho AI đọc
@@ -107,18 +86,21 @@ router.post('/', async (req, res) => {
         ${menuContext}
 
         NHIỆM VỤ:
-        - Ưu tiên món khớp tên khách hỏi (vd: hỏi "sữa chua" chỉ hiện "sữa chua").
-        - Nếu không thấy món (isMatchFound=${isMatchFound}), trả lời: "Dạ hiện tại bên em chưa có món này, bạn tham khảo thử mấy món này của HaFo nha:".
-        - Chỉ gợi ý sở thích "${preferenceContext}" nếu liên quan trực tiếp đến món khách đang tìm.
-        - Trả lời nhanh, ngắn gọn bằng JSON: { "reply": "...", "foods": [{"_id", "name", "price", "image", "description"}], "isBad": false }
-        - Trường "price" là Number, "image" lấy chính xác từ menu.
-        - Trả lời về đơn hàng nếu khách hỏi dựa trên: ${orderContext}.
+        - Nếu trong danh sách trên có món liên quan đến từ khóa "${searchRegex}", TUYỆT ĐỐI KHÔNG ĐƯỢC nói là "Không có". Hãy giới thiệu món đó ngay.
+        - Nếu thực sự không thấy món khách hỏi (isMatchFound = ${isMatchFound}), hãy trả lời: "Dạ hiện tại bên em chưa có món này, nhưng má tham khảo thử mấy món cực phẩm này của HaFo nha:" và liệt kê các món trong danh sách trên.
+        - Luôn trả lời bằng định dạng JSON có cấu trúc sau: { "reply": "nội dung chữ", "foods": [] }
+        - TRONG "foods", TRƯỜNG "_id" LÀ BẮT BUỘC VÀ PHẢI LẤY ĐÚNG TỪ MENU TRÊN.
+        - Trong "foods", object PHẢI chứa đủ: { "_id", "name", "price", "image", "description" }
+        - Trường "price" PHẢI là KIỂU SỐ (Number) và KHÔNG được chứa ký tự "đ" hay dấu chấm phân cách.
+        - Trường "image" PHẢI lấy chính xác từ MENU mình đã cung cấp ở trên, không được tự chế.
+        - Nếu khách hỏi về đơn hàng, hãy dùng thông tin ${orderContext} để trả lời, còn khách không hỏi tới thì không sử dụng.
+        - Nếu khách hỏi món không có, hãy gợi ý món tương tự.
+        - Trả lời nhanh trong vòng 5 giây.
+        - Dựa vào sở thích "${preferenceContext}", hãy chào hỏi và gợi ý món một cách tinh tế.
         `;
-        const recentHistory = (history || []).slice(-10);
-
-        let validHistory = recentHistory.map(msg => ({
+        let validHistory = (history || []).map(msg => ({
             role: msg.sender === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.text || msg.reply || "" }]
+            parts: [{ text: typeof msg.text === 'string' ? msg.text : msg.reply }]
         }));
 
         while (validHistory.length > 0 && validHistory[0].role === 'model') {
@@ -128,11 +110,7 @@ router.post('/', async (req, res) => {
         const model = genAI.getGenerativeModel({
             model: "gemini-flash-latest", // Hoặc bản flash mới nhất bạn có
             systemInstruction: systemInstruction,
-            generationConfig: {
-                responseMimeType: "application/json",
-                maxOutputTokens: 500,
-                temperature: 0.7
-            }
+            generationConfig: { responseMimeType: "application/json" } // Ép trả về JSON
         });
 
         const chat = model.startChat({
@@ -143,26 +121,7 @@ router.post('/', async (req, res) => {
         const responseText = result.response.text();
 
         // Parse kết quả JSON từ AI và gửi về Frontend
-        let finalData;
-        try {
-            const cleanText = responseText.replace(/```json|```/g, "").trim();
-            finalData = JSON.parse(cleanText);
-        } catch (firstError) {
-            try {
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    finalData = JSON.parse(jsonMatch[0]);
-                } else {
-                    throw new Error("Không tìm thấy khối JSON");
-                }
-            } catch (secondError) {
-                console.error("LỖI KHÔNG THỂ ĐỌC JSON TỪ AI. Nội dung gốc:", responseText);
-                finalData = {
-                    reply: responseText || "Hic, HaFo AI đang bảo trì não bộ một tí, bạn hỏi lại câu khác nha!",
-                    foods: []
-                };
-            }
-        }
+        const finalData = JSON.parse(responseText);
 
         if (finalData.foods && finalData.foods.length > 0) {
             finalData.foods = finalData.foods.map(botFood => {
@@ -221,15 +180,10 @@ router.get('/history/:userId', async (req, res) => {
     } catch (err) { res.status(500).json(err); }
 });
 
-// RESET LỊCH SỬ
+// RESET LỊCH SỬ (Gọi khi Login/Logout tùy ý má)
 router.delete('/history/:userId', async (req, res) => {
-    try {
-        await ChatHistory.findOneAndDelete({ userId: req.params.userId });
-        res.json({ message: "Đã reset lịch sử chat" });
-    } catch (err) {
-        console.error("Lỗi xóa lịch sử chat:", err);
-        res.status(500).json({ error: "Không thể xóa lịch sử chat" });
-    }
+    await ChatHistory.findOneAndDelete({ userId: req.params.userId });
+    res.json({ message: "Đã reset lịch sử chat" });
 });
 
 module.exports = router;
