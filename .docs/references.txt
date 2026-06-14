@@ -1,0 +1,43 @@
+============================================================
+PROJECT REFERENCES & RESEARCH LOG - HAFO FOOD DELIVERY
+============================================================
+
+I. FRONTEND LIBRARIES & UI KITS:
+1. React Router DOM: https://reactrouter.com/en/main
+   - Researching protected routes for User/Admin/Driver roles.
+   - Implementing lazy loading for optimizing page speed.
+2. Tailwind CSS: https://tailwindcss.com/docs/installation
+   - Customizing colors for HaFo brand (Orange-Red primary).
+   - Responsive design for Mobile-first approach.
+3. Lucide Icons: https://lucide.dev/icons/
+   - Lightweight icons for food categories and user profile.
+4. Framer Motion: https://www.framer.com/motion/
+   - Smooth transitions between menu categories.
+   - Animation for adding items to cart.
+
+II. BACKEND & API DESIGN:
+1. RESTful API Best Practices: https://restfulapi.net/
+   - Designing endpoints: /api/v1/orders, /api/v1/products.
+   - Status codes handling: 200, 201, 400, 401, 404, 500.
+2. JWT Authentication: https://jwt.io/introduction
+   - Storing tokens in HttpOnly Cookies for security.
+3. Database Schema Design:
+   - Relationships: One-to-Many (User to Orders).
+   - Indexing strategies for searching food names.
+
+III. DEPLOYMENT & TOOLS:
+1. Vercel for Frontend: https://vercel.com/docs
+2. Dockerizing the application: https://docs.docker.com/get-started/
+3. Postman for API Testing: https://www.postman.com/
+
+IV. COMPETITOR RESEARCH:
+- ShopeeFood: Focus on voucher system UX.
+- GrabFood: Analyze tracking order map integration.
+- Baemin: UI aesthetics and branding consistency.
+
+V. TODO LIST FOR NEXT SPRINT:
+- Fix bug: Cart items disappearing on refresh.
+- Integrate Google Maps API for real-time tracking.
+- Optimize images using Cloudinary or AWS S3.
+============================================================
+Last Updated: Jan 2026

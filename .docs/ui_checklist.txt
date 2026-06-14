@@ -1,0 +1,6 @@
+[x] Navbar: Logo, Search Bar, User Profile, Cart Icon
+[ ] Hero Section: Promotional Banners, Category Chips
+[ ] Food Card: Image, Title, Rating, Price, Add to Cart Button
+[ ] Sidebar Filter: Price Range, Rating, Distance
+[ ] Footer: About Us, Contact, Social Media Links
+[ ] Order Tracking: Map Integration, Driver Info
